@@ -1,0 +1,24 @@
+name: 'Rulebix Publish Action'
+description: 'Automatically notify Rulebix Registry about new releases'
+inputs:
+  repo:
+    description: 'The GitHub repository (owner/repo)'
+    required: true
+    default: ${{ github.repository }}
+  version:
+    description: 'The release version tag'
+    required: true
+    default: ${{ github.event.release.tag_name }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Send Notification to Rulebix
+      shell: bash
+      run: |
+     
+        API_URL="https://api.rulebix.com/api/v1/publish"
+        
+        curl -X POST $API_URL \
+          -d "repo=${{ inputs.repo }}" \
+          -d "version=${{ inputs.version }}"
