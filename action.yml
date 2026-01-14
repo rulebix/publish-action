@@ -16,7 +16,7 @@ runs:
   using: "composite"
   steps:
     - name: Validate files
-      uses: ./rulebix-validate.yml
+      uses: ./validate.yml
       with:
         max_length: 11000
 
