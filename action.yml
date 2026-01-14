@@ -1,75 +1,185 @@
-name: 'Rulebix Publish Action'
-description: 'Publish rules to Rulebix Registry'
-author: 'Rulebix'
+name: Rulebix Publish Action
+description: Validate and publish Rulebix rules to Registry using OIDC
+author: Rulebix
 
 inputs:
   api_url:
-    description: 'The Rulebix Registry API URL'
+    description: Rulebix Registry API URL
     required: false
-    default: 'https://api.rulebix.workers.dev/api/v1/publish'
+    default: https://api.rulebix.workers.dev/api/v1/publish
   retries:
-    description: 'Number of retries on network failure'
+    description: Number of retries on network failure
     required: false
     default: 3
 
 runs:
-  using: "composite"
+  using: composite
   steps:
-    - name: Validate files
-      uses: ./validate.yml
-      with:
-        max_length: 11000
-
-    - name: Get OIDC Token
-      id: get_token
+    - name: Check rulebix.json version
       shell: bash
       run: |
-        RESPONSE=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=rulebix")
-        
-        ID_TOKEN=$(echo "$RESPONSE" | jq -r '.value')
-        
-        if [ -z "$ID_TOKEN" ] || [ "$ID_TOKEN" == "null" ]; then
-          echo "::error::Failed to retrieve OIDC token."
+        set -e
+
+        if [ ! -f rulebix.json ]; then
+          echo "::error::rulebix.json not found in repository root"
           exit 1
         fi
-        
-        echo "::add-mask::$ID_TOKEN"
-        echo "token=$ID_TOKEN" >> "$GITHUB_OUTPUT"
 
-    - name: Notify Rulebix Registry 
+        CURRENT_VERSION=$(jq -r '.version' rulebix.json)
+
+        if [ -z "$CURRENT_VERSION" ] || [ "$CURRENT_VERSION" = "null" ]; then
+          echo "::error::version field is missing or invalid in rulebix.json"
+          exit 1
+        fi
+
+        # Check if we're in a git repository
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "::warning::Not in a git repository, skipping version comparison"
+          echo "Current version: $CURRENT_VERSION"
+          exit 0
+        fi
+
+        # Check if we have any commits
+        if ! git rev-parse HEAD > /dev/null 2>&1; then
+          echo "::warning::No commits found, skipping version comparison"
+          echo "Current version: $CURRENT_VERSION"
+          exit 0
+        fi
+
+        # Check if we have a previous commit (handles first commit case)
+        if ! git rev-parse HEAD~1 > /dev/null 2>&1; then
+          echo "::warning::No previous commit found (first commit or shallow clone)"
+          echo "Current version: $CURRENT_VERSION"
+          exit 0
+        fi
+
+        # Try to get previous version of rulebix.json
+        if git show HEAD~1:rulebix.json > /tmp/prev.json 2>/dev/null; then
+          PREV_VERSION=$(jq -r '.version' /tmp/prev.json)
+
+          if [ -z "$PREV_VERSION" ] || [ "$PREV_VERSION" = "null" ]; then
+            echo "::warning::Previous version not found in git history"
+            echo "Current version: $CURRENT_VERSION"
+            exit 0
+          fi
+
+          if [ "$CURRENT_VERSION" = "$PREV_VERSION" ]; then
+            echo "::warning::Version has not changed from $PREV_VERSION"
+            echo "::warning::Please increment the version field in rulebix.json before publishing"
+            exit 0
+          fi
+
+          echo "Version updated: $PREV_VERSION -> $CURRENT_VERSION"
+        else
+          echo "::warning::Cannot access previous rulebix.json (file may not have existed in previous commit)"
+          echo "Current version: $CURRENT_VERSION"
+          exit 0
+        fi
+
+    - name: Validate rules and workflows files
+      shell: bash
+      run: |
+        set -e
+
+        MAX_SIZE=11000
+
+        if [ ! -f rulebix.json ]; then
+          echo "::error::rulebix.json not found in repository root"
+          exit 1
+        fi
+
+        FILES=$(jq -r '
+          (.rules[]?, .workflows[]?) | 
+          if .path != "" and .path != null 
+          then .path + "/" + .name 
+          else .name 
+          end
+        ' rulebix.json)
+
+        if [ -z "$FILES" ]; then
+          echo "::error::No rules or workflows defined in rulebix.json. At least one rule or workflow is required."
+          exit 1
+        fi
+
+        VALIDATED_COUNT=0
+
+        for FILE in $FILES; do
+          if [ ! -f "$FILE" ]; then
+            echo "::error::File not found: $FILE (referenced in rulebix.json)"
+            exit 1
+          fi
+
+          if [[ "$FILE" != *.md ]]; then
+            echo "::error::Invalid file extension for $FILE. Only .md files are allowed."
+            exit 1
+          fi
+
+          SIZE=$(wc -c < "$FILE")
+
+          if [ "$SIZE" -gt "$MAX_SIZE" ]; then
+            echo "::error::File $FILE exceeds maximum size of ${MAX_SIZE} characters (actual: ${SIZE} characters)"
+            exit 1
+          fi
+
+          echo "Validated: $FILE ($SIZE chars)"
+          VALIDATED_COUNT=$((VALIDATED_COUNT + 1))
+        done
+
+        echo "Successfully validated $VALIDATED_COUNT file(s)"
+
+    - name: Request OIDC token
+      shell: bash
+      run: |
+        set -e
+
+        if [ -z "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ] || [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+          echo "::error::OIDC token request environment variables not available. Ensure 'id-token: write' permission is set in workflow."
+          exit 1
+        fi
+
+        OIDC_TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=rulebix-registry" | jq -r '.value')
+
+        if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+          echo "::error::Failed to obtain OIDC token from GitHub. Ensure 'id-token: write' permission is set in workflow."
+          exit 1
+        fi
+
+        echo "OIDC_TOKEN=$OIDC_TOKEN" >> $GITHUB_ENV
+        echo "OIDC token acquired successfully"
+
+    - name: Publish to Rulebix Registry
       shell: bash
       env:
-        REGISTRY_API: "${{ inputs.api_url }}"
-        REPO: "${{ github.repository }}"
-        RAW_VERSION: "${{ github.event.release.tag_name }}"
-        TOKEN: "${{ steps.get_token.outputs.token }}"
-        MAX_RETRIES: "${{ inputs.retries }}"
+        REGISTRY_API: ${{ inputs.api_url }}
+        RETRIES: ${{ inputs.retries }}
       run: |
-        # Build payload
-        PAYLOAD=$(jq -n --arg repo "$REPO" --arg version "$RAW_VERSION" \
-          '{repo: $repo, version: $version}')
+        set -e
 
-        attempt=1
-        while [ $attempt -le $MAX_RETRIES ]; do
-          echo "Attempt $attempt: Publishing $RAW_VERSION..."
-          
-          HTTP_RESPONSE=$(curl -s -o response.txt -w "%{http_code}" -X POST "$REGISTRY_API/publish" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD")
-          
-          if [[ "$HTTP_RESPONSE" -ge 200 && "$HTTP_RESPONSE" -lt 300 ]]; then
-            echo "✅ Successfully published $RAW_VERSION"
-            break
-          else
-            echo "::warning::Attempt $attempt failed. HTTP code: $HTTP_RESPONSE"
-            cat response.txt
-            if [ $attempt -eq $MAX_RETRIES ]; then
-              echo "::error::Failed after $MAX_RETRIES attempts."
-              exit 1
-            fi
-            attempt=$((attempt + 1))
-            sleep 2
-          fi
-        done
+        if [ -z "$REGISTRY_API" ]; then
+          echo "::error::REGISTRY_API environment variable is not set"
+          exit 1
+        fi
+
+        if [ -z "$OIDC_TOKEN" ]; then
+          echo "::error::OIDC_TOKEN is not set. Token acquisition may have failed. Ensure id-token: write permission is granted."
+          exit 1
+        fi
+
+        REPO="${GITHUB_REPOSITORY}"
+        SHA="${GITHUB_SHA}"
+
+        PAYLOAD=$(jq -n \
+          --arg repo "$REPO" \
+          --arg sha "$SHA" \
+          --slurpfile config rulebix.json \
+          '{
+            repo: $repo,
+            commit: $sha,
+            config: $config[0]
+          }')
+
+        echo "::warning::TESTING MODE: Skipping API call"
+        echo "Payload to be sent:"
+        echo "$PAYLOAD"
+        exit 0
