@@ -20,6 +20,7 @@ runs:
         fi
 
         MAX_LENGTH=${{ inputs.max_length }}
+        INVALID=0
 
         # Loop rules + workflows
         for type in "rules" "workflows"; do
@@ -30,20 +31,25 @@ runs:
 
             if [ ! -f "$FULL_PATH" ]; then
               echo "::error::File $FULL_PATH not found"
-              exit 1
+              INVALID=1
             fi
 
             if [[ ! "$FULL_PATH" == *.md ]]; then
               echo "::error::File $FULL_PATH is not a Markdown file"
-              exit 1
+              INVALID=1
             fi
 
             LENGTH=$(wc -m < "$FULL_PATH")
             if [ "$LENGTH" -gt "$MAX_LENGTH" ]; then
               echo "::error::File $FULL_PATH exceeds $MAX_LENGTH characters"
-              exit 1
+              INVALID=1
             fi
           done
         done
+
+        if [ "$INVALID" -ne 0 ]; then
+          echo "::error::Validation failed. Aborting publish."
+          exit 1
+        fi
 
         echo "✅ All files passed validation"
