@@ -1,12 +1,12 @@
 name: 'Rulebix Publish Action'
-description: 'Publish rules to Rulebix Registry using OIDC'
+description: 'Publish rules to Rulebix Registry'
 author: 'Rulebix'
 
 inputs:
   api_url:
     description: 'The Rulebix Registry API URL'
     required: false
-    default: 'https://api.rulebix.workers.dev'
+    default: 'https://api.rulebix.workers.dev/api/v1/publish'
   retries:
     description: 'Number of retries on network failure'
     required: false
@@ -15,6 +15,11 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Validate files
+      uses: ./rulebix-validate.yml
+      with:
+        max_length: 11000
+
     - name: Get OIDC Token
       id: get_token
       shell: bash
@@ -25,14 +30,14 @@ runs:
         ID_TOKEN=$(echo "$RESPONSE" | jq -r '.value')
         
         if [ -z "$ID_TOKEN" ] || [ "$ID_TOKEN" == "null" ]; then
-          echo "::error::Failed to retrieve OIDC token. Ensure 'permissions: id-token: write' is set."
+          echo "::error::Failed to retrieve OIDC token."
           exit 1
         fi
         
         echo "::add-mask::$ID_TOKEN"
         echo "token=$ID_TOKEN" >> "$GITHUB_OUTPUT"
 
-    - name: Notify Rulebix Registry (JSON with jq + retries)
+    - name: Notify Rulebix Registry 
       shell: bash
       env:
         REGISTRY_API: "${{ inputs.api_url }}"
@@ -41,13 +46,13 @@ runs:
         TOKEN: "${{ steps.get_token.outputs.token }}"
         MAX_RETRIES: "${{ inputs.retries }}"
       run: |
-        # Build JSON payload safely using jq
+        # Build payload
         PAYLOAD=$(jq -n --arg repo "$REPO" --arg version "$RAW_VERSION" \
           '{repo: $repo, version: $version}')
 
         attempt=1
         while [ $attempt -le $MAX_RETRIES ]; do
-          echo "Attempt $attempt: Publishing $RAW_VERSION to Rulebix Registry..."
+          echo "Attempt $attempt: Publishing $RAW_VERSION..."
           
           HTTP_RESPONSE=$(curl -s -o response.txt -w "%{http_code}" -X POST "$REGISTRY_API/publish" \
             -H "Authorization: Bearer $TOKEN" \
@@ -55,13 +60,13 @@ runs:
             -d "$PAYLOAD")
           
           if [[ "$HTTP_RESPONSE" -ge 200 && "$HTTP_RESPONSE" -lt 300 ]]; then
-            echo "✅ Successfully published $RAW_VERSION to Rulebix Registry"
+            echo "✅ Successfully published $RAW_VERSION"
             break
           else
             echo "::warning::Attempt $attempt failed. HTTP code: $HTTP_RESPONSE"
             cat response.txt
             if [ $attempt -eq $MAX_RETRIES ]; then
-              echo "::error::Failed to publish after $MAX_RETRIES attempts."
+              echo "::error::Failed after $MAX_RETRIES attempts."
               exit 1
             fi
             attempt=$((attempt + 1))
