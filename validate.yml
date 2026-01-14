@@ -1,0 +1,49 @@
+name: 'Rulebix Validate Action'
+description: 'Validate rulebix.json and Markdown files'
+author: 'Rulebix'
+
+inputs:
+  max_length:
+    description: 'Maximum allowed characters for a file'
+    required: false
+    default: 11000
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate rulebix.json and .md files
+      shell: bash
+      run: |
+        if [ ! -f "rulebix.json" ]; then
+          echo "::error::rulebix.json not found"
+          exit 1
+        fi
+
+        MAX_LENGTH=${{ inputs.max_length }}
+
+        # Loop rules + workflows
+        for type in "rules" "workflows"; do
+          jq -c ".${type}[]" rulebix.json | while read -r entry; do
+            FILE=$(echo "$entry" | jq -r '.name')
+            PATH=$(echo "$entry" | jq -r '.path')
+            FULL_PATH="${PATH}${FILE}"
+
+            if [ ! -f "$FULL_PATH" ]; then
+              echo "::error::File $FULL_PATH not found"
+              exit 1
+            fi
+
+            if [[ ! "$FULL_PATH" == *.md ]]; then
+              echo "::error::File $FULL_PATH is not a Markdown file"
+              exit 1
+            fi
+
+            LENGTH=$(wc -m < "$FULL_PATH")
+            if [ "$LENGTH" -gt "$MAX_LENGTH" ]; then
+              echo "::error::File $FULL_PATH exceeds $MAX_LENGTH characters"
+              exit 1
+            fi
+          done
+        done
+
+        echo "✅ All files passed validation"
