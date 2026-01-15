@@ -6,7 +6,7 @@ inputs:
   api_url:
     description: Rulebix Registry API URL
     required: false
-    default: https://api.rulebix.workers.dev/api/v1/publish
+    default: https://nuxt.ineceper.my.id/api/v1/publish
   retries:
     description: Number of retries on network failure
     required: false
@@ -15,118 +15,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Check rulebix.json version
-      shell: bash
-      run: |
-        set -e
-
-        if [ ! -f rulebix.json ]; then
-          echo "::error::rulebix.json not found in repository root"
-          exit 1
-        fi
-
-        CURRENT_VERSION=$(jq -r '.version' rulebix.json)
-
-        if [ -z "$CURRENT_VERSION" ] || [ "$CURRENT_VERSION" = "null" ]; then
-          echo "::error::version field is missing or invalid in rulebix.json"
-          exit 1
-        fi
-
-        # Check if we're in a git repository
-        if ! git rev-parse --git-dir > /dev/null 2>&1; then
-          echo "::warning::Not in a git repository, skipping version comparison"
-          echo "Current version: $CURRENT_VERSION"
-          exit 0
-        fi
-
-        # Check if we have any commits
-        if ! git rev-parse HEAD > /dev/null 2>&1; then
-          echo "::warning::No commits found, skipping version comparison"
-          echo "Current version: $CURRENT_VERSION"
-          exit 0
-        fi
-
-        # Check if we have a previous commit (handles first commit case)
-        if ! git rev-parse HEAD~1 > /dev/null 2>&1; then
-          echo "::warning::No previous commit found (first commit or shallow clone)"
-          echo "Current version: $CURRENT_VERSION"
-          exit 0
-        fi
-
-        # Try to get previous version of rulebix.json
-        if git show HEAD~1:rulebix.json > /tmp/prev.json 2>/dev/null; then
-          PREV_VERSION=$(jq -r '.version' /tmp/prev.json)
-
-          if [ -z "$PREV_VERSION" ] || [ "$PREV_VERSION" = "null" ]; then
-            echo "::warning::Previous version not found in git history"
-            echo "Current version: $CURRENT_VERSION"
-            exit 0
-          fi
-
-          if [ "$CURRENT_VERSION" = "$PREV_VERSION" ]; then
-            echo "::warning::Version has not changed from $PREV_VERSION"
-            echo "::warning::Please increment the version field in rulebix.json before publishing"
-            exit 0
-          fi
-
-          echo "Version updated: $PREV_VERSION -> $CURRENT_VERSION"
-        else
-          echo "::warning::Cannot access previous rulebix.json (file may not have existed in previous commit)"
-          echo "Current version: $CURRENT_VERSION"
-          exit 0
-        fi
-
-    - name: Validate rules and workflows files
-      shell: bash
-      run: |
-        set -e
-
-        MAX_SIZE=11000
-
-        if [ ! -f rulebix.json ]; then
-          echo "::error::rulebix.json not found in repository root"
-          exit 1
-        fi
-
-        FILES=$(jq -r '
-          (.rules[]?, .workflows[]?) | 
-          if .path != "" and .path != null 
-          then .path + "/" + .name 
-          else .name 
-          end
-        ' rulebix.json)
-
-        if [ -z "$FILES" ]; then
-          echo "::error::No rules or workflows defined in rulebix.json. At least one rule or workflow is required."
-          exit 1
-        fi
-
-        VALIDATED_COUNT=0
-
-        for FILE in $FILES; do
-          if [ ! -f "$FILE" ]; then
-            echo "::error::File not found: $FILE (referenced in rulebix.json)"
-            exit 1
-          fi
-
-          if [[ "$FILE" != *.md ]]; then
-            echo "::error::Invalid file extension for $FILE. Only .md files are allowed."
-            exit 1
-          fi
-
-          SIZE=$(wc -c < "$FILE")
-
-          if [ "$SIZE" -gt "$MAX_SIZE" ]; then
-            echo "::error::File $FILE exceeds maximum size of ${MAX_SIZE} characters (actual: ${SIZE} characters)"
-            exit 1
-          fi
-
-          echo "Validated: $FILE ($SIZE chars)"
-          VALIDATED_COUNT=$((VALIDATED_COUNT + 1))
-        done
-
-        echo "Successfully validated $VALIDATED_COUNT file(s)"
-
     - name: Request OIDC token
       shell: bash
       run: |
@@ -148,38 +36,16 @@ runs:
         echo "OIDC_TOKEN=$OIDC_TOKEN" >> $GITHUB_ENV
         echo "OIDC token acquired successfully"
 
-    - name: Publish to Rulebix Registry
+    - name: Run Publish Script
       shell: bash
       env:
         REGISTRY_API: ${{ inputs.api_url }}
-        RETRIES: ${{ inputs.retries }}
+        GITHUB_TOKEN: ${{ github.token }} # Optional, if needed later
       run: |
-        set -e
-
-        if [ -z "$REGISTRY_API" ]; then
-          echo "::error::REGISTRY_API environment variable is not set"
-          exit 1
+        # Ensure node is available (usually is on standard runners)
+        if ! command -v node &> /dev/null; then
+            echo "::error::Node.js is required but not found."
+            exit 1
         fi
 
-        if [ -z "$OIDC_TOKEN" ]; then
-          echo "::error::OIDC_TOKEN is not set. Token acquisition may have failed. Ensure id-token: write permission is granted."
-          exit 1
-        fi
-
-        REPO="${GITHUB_REPOSITORY}"
-        SHA="${GITHUB_SHA}"
-
-        PAYLOAD=$(jq -n \
-          --arg repo "$REPO" \
-          --arg sha "$SHA" \
-          --slurpfile config rulebix.json \
-          '{
-            repo: $repo,
-            commit: $sha,
-            config: $config[0]
-          }')
-
-        echo "::warning::TESTING MODE: Skipping API call"
-        echo "Payload to be sent:"
-        echo "$PAYLOAD"
-        exit 0
+        node ${{ github.action_path }}/scripts/publish.js
