@@ -38,33 +38,7 @@ async function main() {
 
     console.log(`Read ${SPEC_FILE}, found ${spec.entries?.length || 0} entries.`);
 
-    // 2. Process entries
-    if (spec.entries && Array.isArray(spec.entries)) {
-      for (const entry of spec.entries) {
-        let filePath = entry.path;
-        
-        // Special handling for legacy/simple paths vs full paths
-        // If it's a skill, the content file is at path/SKILL.md
-        if (entry.type === 'skill') {
-             // If path ends with SKILL.md, use it, otherwise assume it's a folder and append SKILL.md
-             if (!filePath.endsWith('SKILL.md')) {
-                 filePath = path.join(filePath, 'SKILL.md');
-             }
-        }
-        
-        // Resolve absolute path (relative to repo root)
-        const absolutePath = path.resolve(process.cwd(), filePath);
-        
-        if (fs.existsSync(absolutePath)) {
-            console.log(`Reading content for ${entry.id} from ${filePath}`);
-            const content = fs.readFileSync(absolutePath, 'utf8');
-            entry.content = content; // Inject content into the entry
-        } else {
-            console.warn(`::warning::File not found for entry ${entry.id}: ${filePath}. Content will be empty.`);
-            // strict mode: could exit 1 here if required
-        }
-      }
-    }
+    // 2. Process entries (Skipped: Content not required)
 
     // 3. Construct Payload
     const payload = {
