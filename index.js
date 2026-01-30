@@ -28,9 +28,9 @@ async function run() {
             version = ref.replace('refs/tags/', '');
             core.info(`Detected tag push: ${version}`);
         } else {
-            // If not a tag, use dev-<short-sha> format
+            // If not a tag, use short SHA as version
             const shortSha = github.context.sha.substring(0, 7);
-            version = `dev-${shortSha}`;
+            version = shortSha;
             core.info(`Detected branch push: ${version}`);
         }
 
