@@ -13,9 +13,11 @@ async function run() {
         // Get inputs from action.yml
         const registryUrl = core.getInput('registry_url');
         const retries = parseInt(core.getInput('retries'), 10);
+        const audience = core.getInput('audience');
 
         core.info(`Registry URL: ${registryUrl}`);
         core.info(`Max retries: ${retries}`);
+        core.info(`OIDC Audience: ${audience}`);
 
         // Detect version from git ref
         const ref = github.context.ref;
@@ -107,7 +109,7 @@ async function run() {
 
         // Get OIDC token for authentication if available
         try {
-            const token = await core.getIDToken();
+            const token = await core.getIDToken(audience);
             if (token) {
                 headers['Authorization'] = `Bearer ${token}`;
                 core.info('OIDC token successfully obtained and added to headers');

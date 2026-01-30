@@ -11,6 +11,10 @@ inputs:
     description: 'Number of retry attempts on failure'
     required: false
     default: '3'
+  audience:
+    description: 'OIDC token audience (aud claim)'
+    required: false
+    default: 'rulebix'
 
 outputs:
   version:
