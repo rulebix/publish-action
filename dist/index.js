@@ -40672,7 +40672,7 @@ async function run() {
         const actor = github.context.actor;
 
         // Validate repository structure
-        const repoPath = process.cwd();
+        const repoPath = process.env.GITHUB_WORKSPACE || process.cwd();
         const validationResult = validateRepository(repoPath);
 
         if (!validationResult.success) {
@@ -40704,10 +40704,10 @@ async function run() {
 
         // Read README.md from repository if exists
         let readmeContent = null;
-        const readmePath = __nccwpck_require__.ab + "README.md";
+        const readmePath = path.join(repoPath, 'README.md');
 
         try {
-            if (fs.existsSync(__nccwpck_require__.ab + "README.md")) {
+            if (fs.existsSync(readmePath)) {
                 readmeContent = fs.readFileSync(readmePath, 'utf8');
                 core.info('README.md found and will be included in payload');
             } else {

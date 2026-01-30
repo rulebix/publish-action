@@ -42,7 +42,7 @@ async function run() {
         const actor = github.context.actor;
 
         // Validate repository structure
-        const repoPath = process.cwd();
+        const repoPath = process.env.GITHUB_WORKSPACE || process.cwd();
         const validationResult = validateRepository(repoPath);
 
         if (!validationResult.success) {
@@ -74,7 +74,7 @@ async function run() {
 
         // Read README.md from repository if exists
         let readmeContent = null;
-        const readmePath = path.join(process.cwd(), 'README.md');
+        const readmePath = path.join(repoPath, 'README.md');
 
         try {
             if (fs.existsSync(readmePath)) {
