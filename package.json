@@ -4,7 +4,8 @@
   "description": "GitHub Action untuk publish metadata repositori ke Rulebix Registry",
   "main": "index.js",
   "scripts": {
-    "build": "ncc build index.js -o dist --license licenses.txt"
+    "build": "ncc build index.js -o dist --license licenses.txt",
+    "test": "node tests/test-validator.js"
   },
   "keywords": [
     "github-action",

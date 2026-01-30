@@ -8,6 +8,21 @@ GitHub Action for auto-publishing to Rulebix Registry.
 - uses: rulebix/publish-action@v1
 ```
 
+## Development
+
+### Building the Action
+
+Before committing changes, you need to build the action:
+
+```bash
+npm install
+npm run build
+```
+
+This will bundle all dependencies into `dist/index.js` which is required for GitHub Actions to run.
+
+**Important:** The `dist/` folder must be committed to the repository for the action to work.
+
 ## Repository Validation
 
 This action includes automatic repository validation to ensure your package structure is correct before publishing.
