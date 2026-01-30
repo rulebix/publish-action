@@ -3,6 +3,7 @@ const github = require('@actions/github');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { validateRepository } = require('./validator');
 
 /**
  * Main function to publish repository metadata to Rulebix Registry
@@ -33,10 +34,41 @@ async function run() {
 
         // Get repository information from GitHub context
         const { owner, repo } = github.context.repo;
-        const packageName = `${owner}/${repo}`;
+        const repoFullName = `${owner}/${repo}`;
         const commitSha = github.context.sha;
         const repoUrl = `https://github.com/${owner}/${repo}`;
         const actor = github.context.actor;
+
+        // Validate repository structure
+        const repoPath = process.cwd();
+        const validationResult = validateRepository(repoPath);
+
+        if (!validationResult.success) {
+            const errorMessage = `Repository validation failed:\n${validationResult.errors.join('\n')}`;
+            core.error(errorMessage);
+            throw new Error(errorMessage);
+        }
+
+        core.info(`✓ Repository validation passed (${validationResult.modulesCount} modules validated)`);
+
+        // Read package_name and spec content from spec.json
+        let packageName = null;
+        let specContent = null;
+        const specPath = path.join(repoPath, 'spec.json');
+
+        try {
+            if (fs.existsSync(specPath)) {
+                specContent = fs.readFileSync(specPath, 'utf8');
+                const specData = JSON.parse(specContent);
+                packageName = specData.name;
+                core.info(`Package name from spec.json: ${packageName}`);
+                core.info('spec.json found and will be included in payload');
+            } else {
+                core.warning('spec.json not found in repository root');
+            }
+        } catch (error) {
+            core.warning(`Failed to read spec.json: ${error.message}`);
+        }
 
         // Read README.md from repository if exists
         let readmeContent = null;
@@ -56,11 +88,13 @@ async function run() {
         // Build JSON payload for registry
         const payload = {
             package_name: packageName,
+            repo: repoFullName,
             version: version,
             commit_sha: commitSha,
             repo_url: repoUrl,
             actor: actor,
-            readme: readmeContent
+            readme: readmeContent,
+            spec: specContent
         };
 
         core.info('Payload to be sent:');
@@ -101,7 +135,7 @@ async function run() {
 
                 // Set outputs for use in other workflow steps
                 core.setOutput('version', version);
-                core.setOutput('package_name', packageName);
+                core.setOutput('package_name', packageName || repoFullName);
 
                 return; // Success, exit function
             } catch (error) {
