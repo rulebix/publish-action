@@ -64,7 +64,7 @@ jobs:
 |-------|-------------|----------|---------|
 | `registry_url` | Registry API endpoint URL | No | `https://nuxt.ineceper.my.id/api/v1/publish` |
 | `retries` | Number of retry attempts on failure | No | `3` |
-| `audience` | OIDC token audience (aud claim) | No | `rulebix` |
+| `audience` | OIDC token audience (aud claim) | No | `rulebix-registry` |
 
 ### Outputs
 

@@ -14,7 +14,7 @@ inputs:
   audience:
     description: 'OIDC token audience (aud claim)'
     required: false
-    default: 'rulebix'
+    default: 'rulebix-registry'
 
 outputs:
   version:
