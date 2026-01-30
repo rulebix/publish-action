@@ -1,6 +1,8 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * Main function to publish repository metadata to Rulebix Registry
@@ -36,13 +38,29 @@ async function run() {
         const repoUrl = `https://github.com/${owner}/${repo}`;
         const actor = github.context.actor;
 
+        // Read README.md from repository if exists
+        let readmeContent = null;
+        const readmePath = path.join(process.cwd(), 'README.md');
+
+        try {
+            if (fs.existsSync(readmePath)) {
+                readmeContent = fs.readFileSync(readmePath, 'utf8');
+                core.info('README.md found and will be included in payload');
+            } else {
+                core.info('README.md not found in repository');
+            }
+        } catch (error) {
+            core.warning(`Failed to read README.md: ${error.message}`);
+        }
+
         // Build JSON payload for registry
         const payload = {
             package_name: packageName,
             version: version,
             commit_sha: commitSha,
             repo_url: repoUrl,
-            actor: actor
+            actor: actor,
+            readme: readmeContent
         };
 
         core.info('Payload to be sent:');

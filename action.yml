@@ -6,7 +6,7 @@ inputs:
   registry_url:
     description: 'Registry API endpoint URL'
     required: false
-    default: 'https://rulebix.com/api/v1/publish'
+    default: 'https://nuxt.ineceper.my.id/api/v1/publish'
   retries:
     description: 'Number of retry attempts on failure'
     required: false
