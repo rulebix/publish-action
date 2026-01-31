@@ -73,7 +73,39 @@ jobs:
 | `version` | Published version (tag or dev-<sha>) |
 | `package_name` | Package name from spec.json |
 
+### Published Data
+
+The action sends the following data to the registry:
+
+- `package_name`: Package name from spec.json
+- `repo`: Repository full name (owner/repo)
+- `version`: Version (tag name or short SHA)
+- `commit_sha`: Full commit SHA
+- `repo_url`: Repository URL
+- `actor`: GitHub actor who triggered the action
+- `readme`: Content of README.md (if exists)
+- `spec`: Content of spec.json (if exists)
+- `unpacked_size`: Total size of repository files in bytes (excluding node_modules, .git, dist)
+- `total_files`: Total number of files in repository (excluding node_modules, .git, dist)
+
 ## Development
+
+### Project Structure
+
+```
+rulebix-publish-action/
+├── index.js                    # Main entry point
+├── validator.js                # Repository validation logic
+├── services/
+│   ├── payload-builder.js      # Build API payload
+│   └── registry-client.js      # HTTP client for registry API
+├── utils/
+│   ├── file-reader.js          # Read spec.json and README.md
+│   ├── repo-stats.js           # Calculate repo size and file count
+│   └── version-detector.js     # Detect version from git ref
+└── tests/
+    └── test-validator.js       # Validator tests
+```
 
 ### Building the Action
 

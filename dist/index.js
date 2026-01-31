@@ -33333,6 +33333,298 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
+/***/ 709:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const core = __nccwpck_require__(7484);
+
+/**
+ * Build payload for registry API
+ * @param {Object} params - Parameters for building payload
+ * @returns {Object} - Payload object ready to send to registry
+ */
+function buildPayload({
+    packageName,
+    repoFullName,
+    version,
+    commitSha,
+    repoUrl,
+    actor,
+    readmeContent,
+    specContent,
+    unpackedSize,
+    totalFiles
+}) {
+    const payload = {
+        package_name: packageName,
+        repo: repoFullName,
+        version: version,
+        commit_sha: commitSha,
+        repo_url: repoUrl,
+        actor: actor,
+        readme: readmeContent,
+        spec: specContent,
+        unpacked_size: unpackedSize,
+        total_files: totalFiles
+    };
+
+    core.info('Payload to be sent:');
+    core.info(JSON.stringify(payload, null, 2));
+
+    return payload;
+}
+
+module.exports = {
+    buildPayload
+};
+
+
+/***/ }),
+
+/***/ 164:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const core = __nccwpck_require__(7484);
+const axios = __nccwpck_require__(7269);
+
+/**
+ * Get OIDC token for authentication
+ * @param {string} audience - OIDC audience
+ * @returns {Promise<string|null>} - OIDC token or null if unavailable
+ */
+async function getOIDCToken(audience) {
+    try {
+        const token = await core.getIDToken(audience);
+        if (token) {
+            core.info('OIDC token successfully obtained and added to headers');
+            return token;
+        }
+    } catch (error) {
+        core.warning('Unable to get OIDC token. Make sure permissions id-token: write is enabled.');
+        core.warning(`Error: ${error.message}`);
+    }
+    return null;
+}
+
+/**
+ * Publish payload to registry with retry logic
+ * @param {string} registryUrl - Registry API URL
+ * @param {Object} payload - Data to send
+ * @param {string|null} token - OIDC token for authentication
+ * @param {number} retries - Maximum number of retry attempts
+ * @returns {Promise<Object>} - Response data from registry
+ */
+async function publishToRegistry(registryUrl, payload, token, retries) {
+    // Prepare request headers
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    // Implement retry logic with exponential backoff
+    let lastError;
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            core.info(`Attempt ${attempt} of ${retries}: Sending data to ${registryUrl}`);
+
+            // Send POST request to registry
+            const response = await axios.post(registryUrl, payload, {
+                headers: headers,
+                timeout: 10000 // 10 second timeout
+            });
+
+            core.info(`✓ Successfully published to Rulebix Registry!`);
+            core.info(`Status: ${response.status}`);
+            core.info(`Response: ${JSON.stringify(response.data)}`);
+
+            return response.data;
+        } catch (error) {
+            lastError = error;
+
+            // Log detailed error information
+            if (error.response) {
+                core.error(`HTTP Error ${error.response.status}: ${error.response.statusText}`);
+                core.error(`Response data: ${JSON.stringify(error.response.data)}`);
+            } else if (error.request) {
+                core.error('No response received from server');
+            } else {
+                core.error(`Error: ${error.message}`);
+            }
+
+            // Wait before retry with exponential backoff
+            if (attempt < retries) {
+                const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff: 2s, 4s, 8s...
+                core.info(`Waiting ${waitTime}ms before retry...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+        }
+    }
+
+    // If all retries failed, throw error
+    throw new Error(`Failed to publish after ${retries} attempts: ${lastError.message}`);
+}
+
+module.exports = {
+    getOIDCToken,
+    publishToRegistry
+};
+
+
+/***/ }),
+
+/***/ 8848:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const fs = __nccwpck_require__(9896);
+const path = __nccwpck_require__(6928);
+const core = __nccwpck_require__(7484);
+
+/**
+ * Read spec.json from repository
+ * @param {string} repoPath - Path to repository root
+ * @returns {Object} - Object with packageName and specContent
+ */
+function readSpecFile(repoPath) {
+    const specPath = path.join(repoPath, 'spec.json');
+    let packageName = null;
+    let specContent = null;
+
+    try {
+        if (fs.existsSync(specPath)) {
+            specContent = fs.readFileSync(specPath, 'utf8');
+            const specData = JSON.parse(specContent);
+            packageName = specData.name;
+            core.info(`Package name from spec.json: ${packageName}`);
+            core.info('spec.json found and will be included in payload');
+        } else {
+            core.warning('spec.json not found in repository root');
+        }
+    } catch (error) {
+        core.warning(`Failed to read spec.json: ${error.message}`);
+    }
+
+    return { packageName, specContent };
+}
+
+/**
+ * Read README.md from repository
+ * @param {string} repoPath - Path to repository root
+ * @returns {string|null} - README content or null if not found
+ */
+function readReadmeFile(repoPath) {
+    const readmePath = path.join(repoPath, 'README.md');
+    let readmeContent = null;
+
+    try {
+        if (fs.existsSync(readmePath)) {
+            readmeContent = fs.readFileSync(readmePath, 'utf8');
+            core.info('README.md found and will be included in payload');
+        } else {
+            core.info('README.md not found in repository');
+        }
+    } catch (error) {
+        core.warning(`Failed to read README.md: ${error.message}`);
+    }
+
+    return readmeContent;
+}
+
+module.exports = {
+    readSpecFile,
+    readReadmeFile
+};
+
+
+/***/ }),
+
+/***/ 7530:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const fs = __nccwpck_require__(9896);
+const path = __nccwpck_require__(6928);
+
+/**
+ * Calculate total size and file count of repository
+ * @param {string} dirPath - Directory path to calculate
+ * @param {Array} excludeDirs - Directories to exclude (e.g., node_modules, .git)
+ * @returns {Object} - Object with totalSize (in bytes) and totalFiles
+ */
+function calculateRepoStats(dirPath, excludeDirs = ['node_modules', '.git', 'dist']) {
+    let totalSize = 0;
+    let totalFiles = 0;
+
+    function traverseDirectory(currentPath) {
+        const items = fs.readdirSync(currentPath);
+
+        for (const item of items) {
+            const itemPath = path.join(currentPath, item);
+            const stats = fs.statSync(itemPath);
+
+            // Skip excluded directories
+            if (stats.isDirectory()) {
+                if (!excludeDirs.includes(item)) {
+                    traverseDirectory(itemPath);
+                }
+            } else {
+                totalSize += stats.size;
+                totalFiles += 1;
+            }
+        }
+    }
+
+    traverseDirectory(dirPath);
+
+    return {
+        totalSize,
+        totalFiles
+    };
+}
+
+module.exports = {
+    calculateRepoStats
+};
+
+
+/***/ }),
+
+/***/ 3537:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const core = __nccwpck_require__(7484);
+
+/**
+ * Detect version from git ref
+ * @param {string} ref - Git reference (e.g., refs/tags/v1.0.0 or refs/heads/main)
+ * @param {string} sha - Commit SHA
+ * @returns {string} - Version string (tag name or short SHA)
+ */
+function detectVersion(ref, sha) {
+    let version;
+
+    if (ref.startsWith('refs/tags/')) {
+        // If push is a tag, use tag name as version
+        version = ref.replace('refs/tags/', '');
+        core.info(`Detected tag push: ${version}`);
+    } else {
+        // If not a tag, use short SHA as version
+        const shortSha = sha.substring(0, 7);
+        version = shortSha;
+        core.info(`Detected branch push: ${version}`);
+    }
+
+    return version;
+}
+
+module.exports = {
+    detectVersion
+};
+
+
+/***/ }),
+
 /***/ 2930:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -40630,10 +40922,12 @@ module.exports = /*#__PURE__*/JSON.parse('{"application/1d-interleaved-parityfec
 var __webpack_exports__ = {};
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
-const axios = __nccwpck_require__(7269);
-const fs = __nccwpck_require__(9896);
-const path = __nccwpck_require__(6928);
 const { validateRepository } = __nccwpck_require__(2930);
+const { detectVersion } = __nccwpck_require__(3537);
+const { readSpecFile, readReadmeFile } = __nccwpck_require__(8848);
+const { calculateRepoStats } = __nccwpck_require__(7530);
+const { buildPayload } = __nccwpck_require__(709);
+const { getOIDCToken, publishToRegistry } = __nccwpck_require__(164);
 
 /**
  * Main function to publish repository metadata to Rulebix Registry
@@ -40650,19 +40944,7 @@ async function run() {
         core.info(`OIDC Audience: ${audience}`);
 
         // Detect version from git ref
-        const ref = github.context.ref;
-        let version;
-
-        if (ref.startsWith('refs/tags/')) {
-            // If push is a tag, use tag name as version
-            version = ref.replace('refs/tags/', '');
-            core.info(`Detected tag push: ${version}`);
-        } else {
-            // If not a tag, use short SHA as version
-            const shortSha = github.context.sha.substring(0, 7);
-            version = shortSha;
-            core.info(`Detected branch push: ${version}`);
-        }
+        const version = detectVersion(github.context.ref, github.context.sha);
 
         // Get repository information from GitHub context
         const { owner, repo } = github.context.repo;
@@ -40683,117 +40965,39 @@ async function run() {
 
         core.info(`✓ Repository validation passed (${validationResult.modulesCount} modules validated)`);
 
-        // Read package_name and spec content from spec.json
-        let packageName = null;
-        let specContent = null;
-        const specPath = path.join(repoPath, 'spec.json');
+        // Read spec.json and README.md
+        const { packageName, specContent } = readSpecFile(repoPath);
+        const readmeContent = readReadmeFile(repoPath);
 
-        try {
-            if (fs.existsSync(specPath)) {
-                specContent = fs.readFileSync(specPath, 'utf8');
-                const specData = JSON.parse(specContent);
-                packageName = specData.name;
-                core.info(`Package name from spec.json: ${packageName}`);
-                core.info('spec.json found and will be included in payload');
-            } else {
-                core.warning('spec.json not found in repository root');
-            }
-        } catch (error) {
-            core.warning(`Failed to read spec.json: ${error.message}`);
-        }
+        // Calculate repository statistics
+        core.info('Calculating repository statistics...');
+        const repoStats = calculateRepoStats(repoPath);
+        core.info(`Total files: ${repoStats.totalFiles}`);
+        core.info(`Unpacked size: ${repoStats.totalSize} bytes (${(repoStats.totalSize / 1024).toFixed(2)} KB)`);
 
-        // Read README.md from repository if exists
-        let readmeContent = null;
-        const readmePath = path.join(repoPath, 'README.md');
+        // Build payload
+        const payload = buildPayload({
+            packageName,
+            repoFullName,
+            version,
+            commitSha,
+            repoUrl,
+            actor,
+            readmeContent,
+            specContent,
+            unpackedSize: repoStats.totalSize,
+            totalFiles: repoStats.totalFiles
+        });
 
-        try {
-            if (fs.existsSync(readmePath)) {
-                readmeContent = fs.readFileSync(readmePath, 'utf8');
-                core.info('README.md found and will be included in payload');
-            } else {
-                core.info('README.md not found in repository');
-            }
-        } catch (error) {
-            core.warning(`Failed to read README.md: ${error.message}`);
-        }
+        // Get OIDC token
+        const token = await getOIDCToken(audience);
 
-        // Build JSON payload for registry
-        const payload = {
-            package_name: packageName,
-            repo: repoFullName,
-            version: version,
-            commit_sha: commitSha,
-            repo_url: repoUrl,
-            actor: actor,
-            readme: readmeContent,
-            spec: specContent
-        };
+        // Publish to registry
+        await publishToRegistry(registryUrl, payload, token, retries);
 
-        core.info('Payload to be sent:');
-        core.info(JSON.stringify(payload, null, 2));
-
-        // Prepare request headers
-        let headers = {
-            'Content-Type': 'application/json'
-        };
-
-        // Get OIDC token for authentication if available
-        try {
-            const token = await core.getIDToken(audience);
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-                core.info('OIDC token successfully obtained and added to headers');
-            }
-        } catch (error) {
-            core.warning('Unable to get OIDC token. Make sure permissions id-token: write is enabled.');
-            core.warning(`Error: ${error.message}`);
-        }
-
-        // Implement retry logic with exponential backoff
-        let lastError;
-        for (let attempt = 1; attempt <= retries; attempt++) {
-            try {
-                core.info(`Attempt ${attempt} of ${retries}: Sending data to ${registryUrl}`);
-
-                // Send POST request to registry
-                const response = await axios.post(registryUrl, payload, {
-                    headers: headers,
-                    timeout: 10000 // 10 second timeout
-                });
-
-                core.info(`✓ Successfully published to Rulebix Registry!`);
-                core.info(`Status: ${response.status}`);
-                core.info(`Response: ${JSON.stringify(response.data)}`);
-
-                // Set outputs for use in other workflow steps
-                core.setOutput('version', version);
-                core.setOutput('package_name', packageName || repoFullName);
-
-                return; // Success, exit function
-            } catch (error) {
-                lastError = error;
-
-                // Log detailed error information
-                if (error.response) {
-                    core.error(`HTTP Error ${error.response.status}: ${error.response.statusText}`);
-                    core.error(`Response data: ${JSON.stringify(error.response.data)}`);
-                } else if (error.request) {
-                    core.error('No response received from server');
-                } else {
-                    core.error(`Error: ${error.message}`);
-                }
-
-                // Wait before retry with exponential backoff
-                if (attempt < retries) {
-                    const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff: 2s, 4s, 8s...
-                    core.info(`Waiting ${waitTime}ms before retry...`);
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
-                }
-            }
-        }
-
-        // If all retries failed, throw error
-        throw new Error(`Failed to publish after ${retries} attempts: ${lastError.message}`);
+        // Set outputs for use in other workflow steps
+        core.setOutput('version', version);
+        core.setOutput('package_name', packageName || repoFullName);
 
     } catch (error) {
         core.setFailed(error.message);
